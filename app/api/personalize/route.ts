@@ -5,11 +5,31 @@ import { ApiResponse } from "@/types";
 
 export const maxDuration = 60;
 
+// ⏱️ Timeout helper
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Timeout")), ms);
+
+    promise
+      .then((res) => {
+        clearTimeout(timer);
+        resolve(res);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
+
 export async function POST(req: NextRequest) {
   try {
+    console.log("➡️ Request received");
+
     const body = await req.json();
     const { adCreative, landingPageUrl } = body;
 
+    // ✅ Validation
     if (!adCreative?.trim()) {
       return NextResponse.json<ApiResponse>(
         { success: false, error: "Ad creative is required." },
@@ -24,7 +44,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Validate URL
+    // ✅ URL validation
     let parsedUrl: URL;
     try {
       parsedUrl = new URL(landingPageUrl);
@@ -38,46 +58,90 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Step 1: Scrape
+    // =========================
+    // 🟡 STEP 1: SCRAPE
+    // =========================
     let elements, html;
+
     try {
-      ({ elements, html } = await scrapePage(parsedUrl.toString()));
+      console.log("🌐 Starting scrape...");
+
+      ({ elements, html } = await withTimeout(
+        scrapePage(parsedUrl.toString()),
+        15000 // 15 sec timeout
+      ));
+
+      console.log("✅ Scrape done");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown scrape error";
+
+      if (msg.includes("Timeout")) {
+        return NextResponse.json<ApiResponse>(
+          { success: false, error: "Scraping timed out. Try a different URL." },
+          { status: 504 }
+        );
+      }
+
       return NextResponse.json<ApiResponse>(
         {
           success: false,
-          error: `Could not fetch the landing page. ${msg}. Make sure the URL is publicly accessible.`,
+          error: `Could not fetch the landing page. ${msg}`,
         },
         { status: 422 }
       );
     }
 
-    if (!elements.h1 && !elements.title) {
+    // ✅ Check extracted content
+    if (!elements?.h1 && !elements?.title) {
       return NextResponse.json<ApiResponse>(
         {
           success: false,
-          error: "Could not extract meaningful content from this page. Try a different URL.",
+          error: "Could not extract meaningful content from this page.",
         },
         { status: 422 }
       );
     }
 
-    // Step 2: Personalize via LLM
+    // =========================
+    // 🟡 STEP 2: PERSONALIZATION
+    // =========================
     let result;
+
     try {
-      result = await personalizePageElements(adCreative, elements);
+      console.log("🤖 Starting personalization...");
+
+      result = await withTimeout(
+        personalizePageElements(adCreative, elements),
+        20000 // 20 sec timeout
+      );
+
+      console.log("✅ Personalization done");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "LLM error";
+
+      if (msg.includes("Timeout")) {
+        return NextResponse.json<ApiResponse>(
+          { success: false, error: "AI processing timed out. Try again." },
+          { status: 504 }
+        );
+      }
+
       return NextResponse.json<ApiResponse>(
         { success: false, error: `Personalization failed: ${msg}` },
         { status: 500 }
       );
     }
 
-    // Step 3: Inject personalized content back into the HTML
-    const personalizedHtml = injectPersonalizedContent(html, elements, result.personalized);
+    // =========================
+    // 🟡 STEP 3: INJECT HTML
+    // =========================
+    const personalizedHtml = injectPersonalizedContent(
+      html,
+      elements,
+      result.personalized
+    );
 
+    // ✅ FINAL RESPONSE
     return NextResponse.json<ApiResponse>({
       success: true,
       data: result,
@@ -85,6 +149,9 @@ export async function POST(req: NextRequest) {
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Unexpected error";
+
+    console.error("❌ FINAL ERROR:", msg);
+
     return NextResponse.json<ApiResponse>(
       { success: false, error: msg },
       { status: 500 }
