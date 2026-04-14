@@ -39,6 +39,8 @@ export default function Home() {
 
   const handleSubmit = useCallback(
     async (adCreative: string, url: string) => {
+      if (loadingStage !== "idle") return;
+      
       setError("");
       setResult(null);
       setPersonalizedHtml("");
@@ -63,11 +65,10 @@ export default function Home() {
         }
 
         // Ensure we stay on "rendering" briefly
-        setTimeout(() => {
-          setResult(data.data!);
-          setPersonalizedHtml(data.scrapedHtml || "");
-          setLoadingStage("done");
-        }, 600);
+        setResult(data.data!);
+        setPersonalizedHtml(data.scrapedHtml || "");
+        setLoadingStage("done");
+        
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Network error";
         setError(msg);
