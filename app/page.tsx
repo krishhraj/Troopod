@@ -38,16 +38,14 @@ export default function Home() {
   }, []);
 
   const handleSubmit = useCallback(
-    async (adCreative: string, url: string) => {
-      if (loadingStage !== "idle") return;
-      
+    async (adCreative: string, url: string) => {      
       setError("");
       setResult(null);
       setPersonalizedHtml("");
       setCurrentUrl(url);
 
-      // Start visual stage progression
-      advanceStages(() => {});
+      console.log("STATE BEFORE FETCH");
+
 
       try {
         const res = await fetch("/api/personalize", {
@@ -75,7 +73,7 @@ export default function Home() {
         setLoadingStage("error");
       }
     },
-    [advanceStages]
+    []
   );
 
   const handleReset = () => {
